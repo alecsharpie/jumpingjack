@@ -2,15 +2,19 @@
 
 An EyeToy-style party game that runs entirely in the browser. The laptop's webcam watches you, MediaPipe pose tracking finds your head, hands, knees and feet, and you play by moving. There are no buttons: hold a hand over a menu tile to pick it.
 
-## Run it
+## Play it
+
+**https://www.alecsharpie.me/jumpingjack/** (hosted on GitHub Pages)
+
+Everything runs client-side: the pose model runs in your browser via WebAssembly/WebGL, and no video ever leaves your machine. The model is fetched from a CDN on first load.
+
+### Local development
+
+The site is plain static files with no build step. Browsers won't load ES modules from `file://`, so serve the folder with any static server, for example:
 
 ```sh
-python3 -m http.server 8000
+python3 -m http.server 8000   # then open http://localhost:8000
 ```
-
-Then open http://localhost:8000 in Chrome or Edge. The browser only allows camera access on `localhost` or HTTPS, so open it that way rather than as a `file://` path.
-
-The pose model is loaded from a CDN the first time, so you need a network connection for the first load.
 
 ## TV setup
 
