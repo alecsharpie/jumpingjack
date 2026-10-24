@@ -12,14 +12,18 @@ export class Bubbles extends GameBase {
   setup() {
     this.bubbles = [];
     this.spawnT = 0;
-    this.popped = 0;
-    this.chain = 0;
-    this.chainT = 0;
     this.elapsed = 0;
     for (let i = 0; i < 6; i++) this.spawn(rand(0.3, 1));
   }
 
-  stats() { return [`Bubbles popped: ${this.popped}`]; }
+  begin() {
+    for (const p of this.ps) Object.assign(p, { popped: 0, chain: 0, chainT: 0 });
+  }
+
+  stats() {
+    if (!this.multi) return [`Bubbles popped: ${this.ps[0].popped}`];
+    return this.ps.map((p) => `${p.name}: ${p.popped} popped`);
+  }
 
   spawn(yFrac = 1.1) {
     const { W, H } = this.G;
@@ -51,32 +55,37 @@ export class Bubbles extends GameBase {
     this.spawnT -= dt;
     if (this.spawnT <= 0) {
       this.spawn();
-      this.spawnT = clamp(0.55 - this.elapsed * 0.006, 0.25, 0.55) * rand(0.7, 1.3);
+      this.spawnT = (clamp(0.55 - this.elapsed * 0.006, 0.25, 0.55) * rand(0.7, 1.3)) / Math.sqrt(this.ps.length);
     }
-    this.chainT -= dt;
-    if (this.chainT <= 0) this.chain = 0;
+    for (const p of this.ps) {
+      p.chainT -= dt;
+      if (p.chainT <= 0) p.chain = 0;
+    }
     this.float(dt);
 
     for (const b of this.bubbles) {
-      if (b.dead || !body.hit(b.x, b.y, b.r * 0.9, ALL_PARTS)) continue;
+      if (b.dead) continue;
+      const part = body.hit(b.x, b.y, b.r * 0.9, ALL_PARTS);
+      const who = part && this.ownerOf(part);
+      if (!who) continue;
       b.dead = true;
       if (b.type === 'bomb') {
-        this.addScore(-300, b.x, b.y, '#ff4d4d');
-        this.chain = 0;
+        this.addScore(who, -300, b.x, b.y, '#ff4d4d');
+        who.chain = 0;
         fx.burst(b.x, b.y, { n: 40, colors: ['#222', '#ff6a00', '#ffcc00'], speed: 700, size: 14 });
         fx.shake(25);
         fx.flash('#ff6a00', 0.35);
         audio.bomb();
         continue;
       }
-      this.popped++;
-      this.chain++;
-      this.chainT = 1;
-      const pts = (b.type === 'gold' ? 250 : 50) + Math.min(this.chain, 10) * 5;
-      this.addScore(pts, b.x, b.y, b.type === 'gold' ? '#ffd700' : '#fff');
+      who.popped++;
+      who.chain++;
+      who.chainT = 1;
+      const pts = (b.type === 'gold' ? 250 : 50) + Math.min(who.chain, 10) * 5;
+      this.addScore(who, pts, b.x, b.y, b.type === 'gold' ? '#ffd700' : '#fff');
       const colors = b.type === 'gold' ? ['#ffd700', '#fff8b0'] : [`hsl(${b.hue},90%,70%)`, '#fff'];
       fx.burst(b.x, b.y, { n: 16, colors, speed: 380, size: 7, gravity: 300 });
-      audio.pop(1 + Math.min(this.chain, 12) * 0.08);
+      audio.pop(1 + Math.min(who.chain, 12) * 0.08);
     }
   }
 

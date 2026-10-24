@@ -1,11 +1,13 @@
-import { createPoseDetector } from './pose.js';
-import { Body, drawSkeleton } from './body.js';
+import { createPoseDetector, createGestureRecognizer } from './vision.js';
+import { Crowd, drawSkeleton } from './body.js';
+import { toHands } from './gestures.js';
 import { Sfx } from './audio.js';
 import { FX, text, FONT_BODY, clamp } from './fx.js';
 import { CalibrateScene, MenuScene, ResultsScene } from './scenes.js';
 import { GAMES } from './games/index.js';
 
 const params = new URLSearchParams(location.search);
+const MAX_PLAYERS = clamp(+params.get('players') || 2, 1, 4);
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const video = document.getElementById('cam');
@@ -19,7 +21,7 @@ const statusEl = document.getElementById('status');
 const G = {
   ctx, canvas, video,
   W: innerWidth, H: innerHeight, dpr: 1, t: 0,
-  body: new Body(), audio: new Sfx(), fx: new FX(),
+  body: new Crowd(MAX_PLAYERS), hands: [], gestures: null, audio: new Sfx(), fx: new FX(),
   games: GAMES,
   mirror: params.get('mirror') !== '0',
   showSkeleton: params.has('skeleton'),
@@ -97,11 +99,11 @@ function drawCamera() {
 }
 
 function drawCursors() {
-  for (const n of ['lhand', 'rhand', 'mouse', 'lfoot', 'rfoot']) {
-    const p = G.body.parts[n];
-    if (!p.visible) continue;
+  const multi = G.body.active.length > 1;
+  for (const p of G.body.partsFor(['lhand', 'rhand', 'lfoot', 'rfoot'])) {
+    const n = p.name;
     const hand = n !== 'lfoot' && n !== 'rfoot';
-    const color = n === 'mouse' ? '#ffffff' : hand ? '#ffcc00' : '#00d2ff';
+    const color = n === 'mouse' ? '#ffffff' : multi ? p.body.color : hand ? '#ffcc00' : '#00d2ff';
     // Motion trail
     if (p.trail.length > 1) {
       ctx.save();
@@ -141,7 +143,9 @@ function detect(now) {
   const t0 = performance.now();
   try {
     const res = G.detector.detectForVideo(video, now);
-    G.body.update(res.landmarks?.[0], G, now / 1000);
+    G.body.update(res.landmarks, G, now / 1000);
+    // Hand gestures are only tracked while a game needs them; it's a second model per frame.
+    G.hands = G.scene?.usesHands && G.gestures ? toHands(G.gestures.recognizeForVideo(video, now), G) : [];
   } catch (err) {
     console.error(err);
   }
@@ -168,14 +172,14 @@ function frame(now) {
     G.scene.update(dt);
     G.scene.draw(ctx);
   }
-  if (G.showSkeleton) drawSkeleton(ctx, G.body, { alpha: 0.6 });
+  if (G.showSkeleton) for (const b of G.body.active) drawSkeleton(ctx, b, { alpha: 0.6 });
   if (G.scene) drawCursors();
   G.fx.update(dt);
   G.fx.draw(ctx, G.W, G.H);
   ctx.restore();
 
   // "Can't see you" banner while the player has left the frame
-  lostFor = G.body.present || G.body.parts.mouse.visible || !G.scene ? 0 : lostFor + dt;
+  lostFor = G.body.present || G.body.mouse.visible || G.hands.length || !G.scene ? 0 : lostFor + dt;
   if (lostFor > 1.2 && !(G.scene instanceof CalibrateScene)) {
     const s = clamp(G.W * 0.02, 16, 38), y = G.H * 0.76;
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
@@ -203,8 +207,15 @@ function setStatus(msg, err = false) {
   statusEl.classList.toggle('err', err);
 }
 
-const detectorReady = createPoseDetector(params.get('model') || 'full')
-  .then((d) => { G.detector = d; setStatus('Ready! Press PLAY.'); })
+const detectorReady = createPoseDetector(params.get('model') || 'full', MAX_PLAYERS)
+  .then((d) => {
+    G.detector = d;
+    setStatus('Ready! Press PLAY.');
+    // Load hand tracking in the background so the gesture games are ready when picked.
+    createGestureRecognizer(MAX_PLAYERS * 2)
+      .then((g) => { G.gestures = g; })
+      .catch((err) => { console.error(err); G.showToast("Couldn't load hand tracking"); });
+  })
   .catch((err) => { console.error(err); setStatus(`Couldn't load the pose model (${err.message}). Check your connection and reload.`, true); });
 
 async function startCamera(deviceId) {

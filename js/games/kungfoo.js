@@ -15,21 +15,33 @@ export class KungFoo extends GameBase {
     this.enemies = [];
     this.spawnT = 0.6;
     this.elapsed = 0;
-    this.combo = 0;
-    this.bestCombo = 0;
-    this.ko = 0;
   }
 
-  stats() { return [`Ninjas defeated: ${this.ko}`, `Best combo: ${this.bestCombo}`]; }
+  begin() {
+    for (const p of this.ps) Object.assign(p, { combo: 0, bestCombo: 0, ko: 0 });
+  }
 
-  target() {
-    const h = this.G.body.parts.head;
-    return h.visible ? { x: h.x, y: h.y + h.r * 0.4, r: h.r } : { x: this.G.W / 2, y: this.G.H * 0.35, r: this.G.H * 0.08 };
+  stats() {
+    if (!this.multi) return [`Ninjas defeated: ${this.ps[0].ko}`, `Best combo: ${this.ps[0].bestCombo}`];
+    return this.ps.map((p) => `${p.name}: ${p.ko} ninjas · best combo ${p.bestCombo}`);
+  }
+
+  // The head a ninja is flying at. Falls back to the player's share of the screen if their head isn't visible.
+  target(p) {
+    const h = p.body.parts.head;
+    if (h.visible) return { x: h.x, y: h.y + h.r * 0.4, r: h.r };
+    const { W, H } = this.G;
+    return { x: (W * (p.idx + 0.5)) / this.ps.length, y: H * 0.35, r: H * 0.08 };
   }
 
   spawn() {
-    const { W, H, body } = this.G;
-    const scale = body.scale || H * 0.12;
+    const { W, H } = this.G;
+    const alive = this.alive;
+    if (!alive.length) return;
+    // Aim at whoever has the fewest ninjas incoming.
+    const incoming = (p) => this.enemies.filter((e) => e.state === 'in' && e.target === p).length;
+    const victim = alive.reduce((a, b) => (incoming(b) < incoming(a) ? b : a));
+    const scale = victim.body.scale || H * 0.12;
     const side = Math.random() < 0.5 ? -1 : 1;
     const roll = Math.random();
     const type = this.elapsed > 12 && roll < 0.18 ? 'red' : roll > 0.93 ? 'gold' : 'black';
@@ -37,10 +49,10 @@ export class KungFoo extends GameBase {
     const fromTop = Math.random() < 0.3;
     const x = fromTop ? W / 2 + side * rand(W * 0.15, W * 0.45) : side < 0 ? -r : W + r;
     const y = fromTop ? -r : rand(H * 0.1, H * 0.75);
-    const tgt = this.target();
+    const tgt = this.target(victim);
     const travel = clamp(2.4 - this.elapsed * 0.022, 1.15, 2.4) * (type === 'red' ? 0.65 : 1);
     const dist = Math.hypot(tgt.x - x, tgt.y - y);
-    this.enemies.push({ x, y, vx: 0, vy: 0, r, type, speed: dist / travel, state: 'in', rot: 0, vr: 0, t: 0, side });
+    this.enemies.push({ x, y, vx: 0, vy: 0, r, type, speed: dist / travel, state: 'in', rot: 0, vr: 0, t: 0, side, target: victim });
     this.G.audio.whoosh();
   }
 
@@ -52,14 +64,18 @@ export class KungFoo extends GameBase {
     if (this.spawnT <= 0) {
       this.spawn();
       if (this.elapsed > 20 && Math.random() < 0.25) this.spawn();
-      this.spawnT = clamp(1.5 - this.elapsed * 0.017, 0.5, 1.5) * rand(0.8, 1.2);
+      this.spawnT = (clamp(1.5 - this.elapsed * 0.017, 0.5, 1.5) * rand(0.8, 1.2)) / Math.sqrt(this.alive.length || 1);
     }
-    const tgt = this.target();
-    const minSpeed = Math.max(220, (body.scale || H * 0.12) * 1.8);
 
     for (const e of this.enemies) {
       e.t += dt;
+      if (e.state === 'in' && e.target.out) {
+        // Their player is out: the ninja gives up and falls away.
+        e.state = 'hit'; e.vx = 0; e.vy = -200; e.vr = 4;
+      }
       if (e.state === 'in') {
+        const tgt = this.target(e.target);
+        const minSpeed = Math.max(220, (e.target.body.scale || H * 0.12) * 1.8);
         // Home in on the head, steering gently so they're dodgeable but persistent.
         const dx = tgt.x - e.x, dy = tgt.y - e.y;
         const d = Math.hypot(dx, dy) || 1;
@@ -74,32 +90,33 @@ export class KungFoo extends GameBase {
         e.rot = Math.sin(e.t * 6) * 0.25;
 
         const p = body.hit(e.x, e.y, e.r, LIMBS, minSpeed);
-        if (p) {
+        const who = p && this.ownerOf(p);
+        if (who) {
           e.state = 'hit';
           const sp = Math.max(p.speed, 1);
           const push = 900;
           e.vx = (p.vx / sp) * push + rand(-100, 100);
           e.vy = (p.vy / sp) * push - 400;
           e.vr = rand(12, 20) * Math.sign(e.vx || 1);
-          this.combo++;
-          this.ko++;
-          this.bestCombo = Math.max(this.bestCombo, this.combo);
-          const pts = (e.type === 'gold' ? 500 : e.type === 'red' ? 200 : 100) * (1 + Math.floor(this.combo / 5));
-          this.addScore(pts, e.x, e.y - e.r * 1.6, e.type === 'gold' ? '#ffd700' : '#ffe066');
+          who.combo++;
+          who.ko++;
+          who.bestCombo = Math.max(who.bestCombo, who.combo);
+          const pts = (e.type === 'gold' ? 500 : e.type === 'red' ? 200 : 100) * (1 + Math.floor(who.combo / 5));
+          this.addScore(who, pts, e.x, e.y - e.r * 1.6, e.type === 'gold' ? '#ffd700' : '#ffe066');
           fx.popup(e.x, e.y, pick(WORDS), { size: 64, color: pick(['#fff', '#ffcc00', '#00d2ff']), life: 0.7 });
           fx.burst(e.x, e.y, { n: 26, colors: e.type === 'gold' ? ['#ffd700', '#fff'] : ['#fff', '#ffcc00', '#ff3d7f'], speed: 600, shape: 'star', size: 14 });
           fx.shake(8);
           audio.hit();
-          if (this.combo > 0 && this.combo % 10 === 0) {
-            fx.popup(W / 2, H * 0.25, `${this.combo} COMBO!`, { size: 90, color: '#ff3d7f', life: 1.3 });
+          if (who.combo % 10 === 0) {
+            fx.popup(W / 2, H * 0.25, `${this.multi ? who.name + ' ' : ''}${who.combo} COMBO!`, { size: 90, color: this.multi ? who.color : '#ff3d7f', life: 1.3 });
             audio.cheer();
           }
           continue;
         }
         if (Math.hypot(e.x - tgt.x, e.y - tgt.y) < e.r * 0.6 + tgt.r * 0.6) {
           e.state = 'gone';
-          this.combo = 0;
-          this.loseLife();
+          e.target.combo = 0;
+          this.loseLife(e.target);
           fx.popup(tgt.x, tgt.y - tgt.r * 1.5, 'OUCH!', { size: 70, color: '#ff4d4d' });
           fx.burst(tgt.x, tgt.y, { n: 18, colors: ['#ff0033', '#fff'] });
         }
@@ -125,21 +142,20 @@ export class KungFoo extends GameBase {
     const { G } = this;
     // A hint ring around the head so the player knows what to protect.
     if (this.playing) {
-      const tgt = this.target();
-      ctx.save();
-      ctx.setLineDash([10, 10]);
-      ctx.lineWidth = 4;
-      ctx.strokeStyle = 'rgba(255,80,80,0.6)';
-      ctx.beginPath();
-      ctx.arc(tgt.x, tgt.y, tgt.r * 1.2, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
+      for (const p of this.alive) {
+        const tgt = this.target(p);
+        ctx.save();
+        ctx.setLineDash([10, 10]);
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = this.multi ? p.color : 'rgba(255,80,80,0.6)';
+        ctx.beginPath();
+        ctx.arc(tgt.x, tgt.y, tgt.r * 1.2, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+        if (p.combo >= 3) text(ctx, `x${p.combo}`, tgt.x, tgt.y - tgt.r * 1.7, { size: tgt.r * 0.7, color: this.multi ? p.color : '#ff3d7f' });
+      }
     }
     for (const e of this.enemies) drawNinja(ctx, e, G.t);
-    if (this.combo >= 3 && this.playing) {
-      const big = clamp(G.W * 0.03, 22, 60);
-      text(ctx, `x${this.combo} COMBO`, 28, 20 + big * 2.3, { size: big * 0.8, align: 'left', color: '#ff3d7f' });
-    }
   }
 }
 

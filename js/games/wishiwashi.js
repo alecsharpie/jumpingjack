@@ -14,8 +14,8 @@ const CLEAN_TARGET = 0.9;
 // The screen is covered in grime. Wipe it clean with your whole body.
 export class WishiWashi extends GameBase {
   constructor(G) {
-    super(G, { id: 'wishiwashi', title: 'WISHI WASHI', duration: 60, color: '#00a8e8', bpm: 112,
-      how: 'Wipe the windows clean! Use your hands, arms… anything. Move around!' });
+    super(G, { id: 'wishiwashi', title: 'WISHI WASHI', duration: 60, color: '#00a8e8', bpm: 112, team: true,
+      how: 'Wipe the windows clean! Use your hands, arms… anything. Friends can help!' });
   }
 
   setup() {
@@ -85,29 +85,31 @@ export class WishiWashi extends GameBase {
     m.strokeStyle = '#000';
     let wiping = false;
     for (const p of body.partsFor(ALL_PARTS)) {
-      const prev = this.prev[p.name];
+      const key = p.body.id + p.name;
+      const prev = this.prev[key];
       const r = p.r * (p.name === 'head' ? 0.9 : 1.25);
       m.lineWidth = r * 2 * k;
       m.beginPath();
       m.moveTo((prev?.x ?? p.x) * k, (prev?.y ?? p.y) * k);
       m.lineTo(p.x * k + 0.01, p.y * k);
       m.stroke();
-      this.prev[p.name] = { x: p.x, y: p.y };
-      if (p.speed > (body.scale || 100) * 2) wiping = true;
+      this.prev[key] = { x: p.x, y: p.y, part: p };
+      if (p.speed > (p.body.scale || 100) * 2) wiping = true;
     }
     // Wipe along the forearms too, so sweeping an arm cleans a band, not just dots.
-    const lm = body.lm;
-    if (lm) {
-      m.lineWidth = (body.scale || 100) * 0.45 * k;
+    for (const b of body.active) {
+      const lm = b.lm;
+      if (!lm) continue;
+      m.lineWidth = (b.scale || 100) * 0.45 * k;
       m.beginPath();
-      for (const [a, b] of [[13, 15], [14, 16], [11, 13], [12, 14]]) {
-        if (lm[a].v < 0.5 || lm[b].v < 0.5) continue;
-        m.moveTo(lm[a].x * k, lm[a].y * k);
-        m.lineTo(lm[b].x * k, lm[b].y * k);
+      for (const [i, j] of [[13, 15], [14, 16], [11, 13], [12, 14]]) {
+        if (lm[i].v < 0.5 || lm[j].v < 0.5) continue;
+        m.moveTo(lm[i].x * k, lm[i].y * k);
+        m.lineTo(lm[j].x * k, lm[j].y * k);
       }
       m.stroke();
     }
-    for (const n of Object.keys(this.prev)) if (!body.parts[n].visible) delete this.prev[n];
+    for (const [key, v] of Object.entries(this.prev)) if (!v.part.visible) delete this.prev[key];
 
     this.squeakT -= dt;
     if (wiping && this.squeakT <= 0) { audio.squeak(); this.squeakT = 0.1; }
@@ -119,7 +121,7 @@ export class WishiWashi extends GameBase {
       if (this.clean >= CLEAN_TARGET) {
         this.windows++;
         const bonus = Math.max(0, Math.round((20 - this.windowT) * 50));
-        this.addScore(1000 + bonus, G.W / 2, G.H * 0.4);
+        this.addScore(this.ps[0], 1000 + bonus, G.W / 2, G.H * 0.4);
         if (bonus > 0) fx.popup(G.W / 2, G.H * 0.55, `SPEED BONUS +${bonus}`, { size: 44, color: '#7CFC00', life: 1.4 });
         fx.popup(G.W / 2, G.H * 0.25, 'SPARKLING!', { size: 100, color: '#00d2ff', life: 1.4 });
         fx.confetti(G.W, G.H, 80);

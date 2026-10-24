@@ -15,13 +15,16 @@ export const CONNECTIONS = [
   [15, 17], [15, 19], [17, 19], [16, 18], [16, 20], [18, 20],
 ];
 
+export const PLAYER_COLORS = ['#ffcc00', '#00e5ff', '#ff3d7f', '#7CFC00'];
+
 const VIS = 0.5;
 const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
 const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
 class Part {
-  constructor(name) {
+  constructor(name, body) {
     this.name = name;
+    this.body = body;
     this.x = this.y = this.px = this.py = 0;
     this.vx = this.vy = 0;
     this.r = 40;
@@ -59,9 +62,12 @@ class Part {
 
 // Turns raw pose landmarks into smoothed, screen-space body parts the games can hit things with.
 export class Body {
-  constructor() {
+  constructor(id = 0) {
+    this.id = id;
+    this.color = PLAYER_COLORS[id % PLAYER_COLORS.length];
+    this.anchor = null;      // last known chest position, used to keep player identities stable
     this.parts = {};
-    for (const n of [...ALL_PARTS, 'mouse']) this.parts[n] = new Part(n);
+    for (const n of [...ALL_PARTS, 'mouse']) this.parts[n] = new Part(n, this);
     this.lm = null;          // screen-space landmarks of the current frame
     this.present = false;
     this.scale = 0;
@@ -171,6 +177,15 @@ export class Body {
     return { x: this.W / 2, y: this.H * 0.4 };
   }
 
+  // Head and shoulders in frame is enough to play most games.
+  upperBodyVisible() {
+    if (!this.lm) return false;
+    return [0, 11, 12].every((i) => {
+      const p = this.lm[i];
+      return p.v > VIS && p.x > 0 && p.x < this.W && p.y > 0 && p.y < this.H;
+    });
+  }
+
   fullBodyVisible() {
     if (!this.lm) return false;
     return [0, 11, 12, 23, 24, 25, 26, 27, 28].every((i) => {
@@ -180,7 +195,71 @@ export class Body {
   }
 }
 
-export function drawSkeleton(ctx, body, { color = '#7df9ff', width = 6, alpha = 0.8 } = {}) {
+// Everyone in front of the camera. Detections are matched to players by chest
+// position each frame, so P1 stays P1 even if MediaPipe reorders its results.
+export class Crowd {
+  constructor(n) {
+    this.players = Array.from({ length: n }, (_, i) => new Body(i));
+  }
+
+  get active() { return this.players.filter((b) => b.present); }
+  get present() { return this.players.some((b) => b.present); }
+  get mouse() { return this.players[0].parts.mouse; }
+
+  update(list, G, t) {
+    const dets = (list || []).slice(0, this.players.length).map((raw) => {
+      const a = G.toScreen(raw[11]), b = G.toScreen(raw[12]);
+      return { raw, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    });
+    const pairs = [];
+    dets.forEach((det, di) => this.players.forEach((b, bi) => {
+      if (b.anchor) pairs.push({ di, bi, dist: Math.hypot(det.x - b.anchor.x, det.y - b.anchor.y) + (b.present ? 0 : G.W) });
+    }));
+    pairs.sort((a, b) => a.dist - b.dist);
+    const usedD = new Set(), usedB = new Set(), assigned = new Map();
+    for (const p of pairs) {
+      if (usedD.has(p.di) || usedB.has(p.bi)) continue;
+      usedD.add(p.di); usedB.add(p.bi);
+      assigned.set(p.bi, dets[p.di]);
+    }
+    dets.forEach((det, di) => {
+      if (usedD.has(di)) return;
+      const bi = this.players.findIndex((_, i) => !usedB.has(i));
+      if (bi < 0) return;
+      usedB.add(bi);
+      assigned.set(bi, det);
+    });
+    this.players.forEach((b, bi) => {
+      const det = assigned.get(bi);
+      b.update(det ? det.raw : null, G, t);
+      if (det) b.anchor = { x: det.x, y: det.y };
+    });
+  }
+
+  tick(t) { for (const b of this.players) b.tick(t); }
+  setMouse(x, y, t) { this.players[0].setMouse(x, y, t); }
+  partsFor(names) { return this.players.flatMap((b) => b.partsFor(names)); }
+
+  hit(x, y, r, names, minSpeed) {
+    for (const b of this.players) {
+      const p = b.hit(x, y, r, names, minSpeed);
+      if (p) return p;
+    }
+    return null;
+  }
+
+  inRect(rect, names) {
+    for (const b of this.players) {
+      const p = b.inRect(rect, names);
+      if (p) return p;
+    }
+    return null;
+  }
+
+  upperBodyVisible() { return this.players.some((b) => b.upperBodyVisible()); }
+}
+
+export function drawSkeleton(ctx, body, { color = body.color, width = 6, alpha = 0.8 } = {}) {
   const lm = body.lm;
   if (!lm) return;
   ctx.save();
