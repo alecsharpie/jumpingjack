@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Jumping Jack</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0b0b1a;
+      --ink: #fff;
+      --accent: #ffcc00;
+      --pink: #ff3d7f;
+      --muted: #b9b9d6;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden; }
+    body { font-family: "Fredoka", "Trebuchet MS", sans-serif; }
+    canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; cursor: crosshair; }
+    video#cam { display: none; }
+
+    #overlay {
+      position: fixed; inset: 0; display: grid; place-items: center; padding: 16px;
+      background:
+        radial-gradient(circle at 20% 20%, #ff3d7f55, transparent 40%),
+        radial-gradient(circle at 80% 30%, #00d2ff44, transparent 45%),
+        radial-gradient(circle at 50% 90%, #ffcc0044, transparent 45%),
+        var(--bg);
+      overflow: auto;
+    }
+    #overlay[hidden] { display: none; }
+    .card { width: min(720px, 100%); text-align: center; }
+    h1 {
+      font-family: "Bungee", "Arial Black", sans-serif; font-weight: 400;
+      font-size: clamp(44px, 9vw, 104px); line-height: 0.95; margin: 0 0 8px;
+      color: var(--accent); text-shadow: 0 6px 0 #c2410c, 0 12px 30px #0008;
+      transform: rotate(-3deg);
+    }
+    .tag { font-size: clamp(18px, 2.6vw, 26px); color: var(--muted); margin: 18px 0 28px; }
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 0 0 28px; text-align: left; }
+    .step { background: #ffffff10; border: 1px solid #ffffff22; border-radius: 16px; padding: 14px 16px; }
+    .step b { display: block; font-size: 28px; }
+    .step span { color: var(--muted); font-size: 15px; }
+    .row { display: flex; gap: 12px; justify-content: center; align-items: center; flex-wrap: wrap; margin-bottom: 18px; }
+    select, label { font: inherit; font-size: 16px; color: var(--ink); }
+    select { background: #ffffff14; border: 1px solid #ffffff33; border-radius: 10px; padding: 8px 12px; max-width: 100%; }
+    select option { color: #000; }
+    button#start {
+      font-family: "Bungee", sans-serif; font-size: clamp(24px, 4vw, 36px);
+      padding: 18px 48px; border: 0; border-radius: 999px; cursor: pointer;
+      color: #1a1a1a; background: var(--accent); box-shadow: 0 8px 0 #c2410c, 0 16px 40px #ffcc0055;
+      transition: transform .1s, box-shadow .1s;
+    }
+    button#start:hover { transform: translateY(-2px); }
+    button#start:active { transform: translateY(6px); box-shadow: 0 2px 0 #c2410c; }
+    button#start:disabled { opacity: .6; cursor: wait; }
+    #status { min-height: 1.4em; margin-top: 18px; color: var(--muted); }
+    #status.err { color: #ff7b7b; }
+    .keys { margin-top: 22px; color: #8d8db0; font-size: 14px; }
+    kbd { background: #ffffff1c; border-radius: 6px; padding: 1px 7px; font-family: inherit; }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <video id="cam" playsinline muted></video>
+
+  <div id="overlay">
+    <div class="card">
+      <h1>JUMPING<br />JACK</h1>
+      <div class="tag">Your body is the controller. No buttons. Just move.</div>
+      <div class="steps">
+        <div class="step"><b>📺</b><span>Plug your laptop into the TV. Mirror the displays, or drag this window onto the TV.</span></div>
+        <div class="step"><b>💻</b><span>Set the laptop at the front centre of the TV, lid open, camera facing the room.</span></div>
+        <div class="step"><b>🕺</b><span>Stand 2–3 m back in a bright room. Wave to choose a game.</span></div>
+      </div>
+      <div class="row">
+        <select id="camera" aria-label="Camera"><option value="">Default camera</option></select>
+        <label><input type="checkbox" id="fs" checked /> Fullscreen</label>
+      </div>
+      <button id="start">PLAY!</button>
+      <div id="status">Loading pose model…</div>
+      <div class="keys">
+        <kbd>F</kbd> fullscreen · <kbd>M</kbd> mute · <kbd>S</kbd> skeleton · <kbd>V</kbd> mirror ·
+        <kbd>C</kbd> next camera · <kbd>Esc</kbd> menu
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
